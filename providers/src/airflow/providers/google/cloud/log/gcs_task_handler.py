@@ -22,6 +22,8 @@ import os
 import shutil
 from collections.abc import Collection
 from functools import cached_property
+from gzip import GzipFile
+from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -71,6 +73,7 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
         will be used.
     :param delete_local_copy: Whether local log files should be deleted after they are downloaded when using
         remote logging
+    :param gzip_compression: Whether logs uploaded to gcs should be gzip compressed
     """
 
     trigger_should_wrap = True
@@ -99,6 +102,7 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
         self.delete_local_copy = kwargs.get(
             "delete_local_copy", conf.getboolean("logging", "delete_local_logs")
         )
+        self.gzip_compression = False
 
     @cached_property
     def hook(self) -> GCSHook | None:
@@ -162,7 +166,11 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
             # read log and remove old logs to get just the latest additions
             with open(local_loc) as logfile:
                 log = logfile.read()
-            gcs_write = self.gcs_write(log, remote_loc)
+            if self.gcs_write_compressed:
+                gcs_write = self.gcs_write_compressed(log, remote_loc)
+            else:
+                gcs_write = self.gcs_write(log, remote_loc)
+
             if gcs_write and self.delete_local_copy:
                 shutil.rmtree(os.path.dirname(local_loc))
 
@@ -227,6 +235,39 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
             return False
         return True
 
+    def gcs_write_compressed(self, log, remote_log_location):
+        """
+        Gzip compress the log and Write it to the remote location and return `True`; fail silently and return `False` on error.
+
+        :param log: the log to write to the remote_log_location
+        :param remote_log_location: the log's location in remote storage
+        :return: whether the log is successfully written to remote location or not.
+        """
+        try:
+            blob = storage.Blob.from_string(remote_log_location, self.client)
+            # decompress old logs (check if gzip or not): if gzip: compressed, if: text/plain not
+            if blob.content_encoding == "gzip":
+                old_log = self._gzip_decompress(blob.download_as_bytes().decode())
+            else:
+                old_log = blob.download_as_bytes().decode()
+
+            log = f"{old_log}\n{log}" if old_log else log
+        except Exception as e:
+            if not self.no_log_found(e):
+                log += self._add_message(
+                    f"Error checking for previous log; if exists, may be overwritten: {e}"
+                )
+                self.log.warning("Error checking for previous log: %s", e)
+        try:
+            blob = storage.Blob.from_string(remote_log_location, self.client)
+            compressed_log = self._gzip_compress(log)
+            # maybe upload_from_file -> test?
+            blob.upload_from_string(compressed_log, content_type="text/plain", content_encoding="gzip")
+        except Exception as e:
+            self.log.error("Could not write compressed logs to %s: %s", remote_log_location, e)
+            return False
+        return True
+
     @staticmethod
     def no_log_found(exc):
         """
@@ -239,3 +280,27 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
         ).get("status") == "404":
             return True
         return False
+
+    def _gzip_compress(self, log_data):
+        """
+        Compress logs using gzip before uploading them to GCS.
+
+        :param log_data: The log data from GCS.
+        :return: The compressed log as a string.
+        """
+        buf = BytesIO()
+        with GzipFile(fileobj=buf, mode="wb") as f_out:
+            f_out.write(log_data.encode("utf-8"))
+        return buf.getvalue()
+
+    def _gzip_decompress(self, log_data):
+        """
+        Decompress old logs already in GCS using gzip.
+
+        :param log_data: The compressed log data (bytes) from GCS.
+        :return: The decompressed log as a string.
+        """
+        buf = BytesIO(log_data)
+        with GzipFile(fileobj=buf, mode="rb") as f_in:
+            decompressed_data = f_in.read().decode("utf-8")
+        return decompressed_data
