@@ -71,3 +71,6 @@ class Pager:
 
     def __init__(self, request_opts, **kwargs):
         pass
+
+    def __iter__(self):
+        return iter([])
