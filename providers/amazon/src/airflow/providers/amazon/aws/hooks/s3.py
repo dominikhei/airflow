@@ -636,6 +636,8 @@ class S3Hook(AwsBaseHook):
     ) -> list[Any]:
         """Get a list of files in the bucket."""
         keys: list[Any] = []
+        if isinstance(bucket_keys, str):
+            bucket_keys = [bucket_keys]
         for key in bucket_keys:
             prefix = key
             if wildcard_match:
