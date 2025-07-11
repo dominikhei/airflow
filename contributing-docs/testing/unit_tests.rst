@@ -69,6 +69,30 @@ For avoid this make sure:
         with pytest.warns(AirflowProviderDeprecationWarning, match="expected warning pattern"):
             SomeDeprecatedClass(foo="bar", spam="egg")
 
+Mocking sleep calls in tests
+.................
+
+To speed up test execution and avoiding unnecessary delays, you should mock sleep calls in tests or set the sleep time to 0.
+If the method you're testing includes a call to ``time.sleep()`` or ``asyncio.sleep()``, mock these calls instead.
+
+How to mock ``sleep()`` depends on how it's imported:
+
+* If time.sleep is imported as ``import time``:
+.. code-block:: python
+    @mock.patch("time.sleep", return_value=None)
+    def test_your_test():
+        pass
+
+* If sleep is imported directly using ``from time import sleep``:
+.. code-block:: python
+    @mock.patch("path.to.module.sleep", return_value=None)
+    def test_your_test():
+        pass
+
+For methods that use ``asyncio`` for async sleep calls you can proceed identically.
+
+**NOTE:** There are certain cases in which ``sleep()`` should not be mocked, as the method functioning correctly depends on actual time passing.
+In those cases the test with the mock will fail, then it's okay to leave it unmocked. Use your judgment and prefer mocking whenever possible.
 
 Airflow configuration for unit tests
 ------------------------------------
