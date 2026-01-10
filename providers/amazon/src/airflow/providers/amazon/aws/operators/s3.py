@@ -296,7 +296,7 @@ class S3CopyObjectOperator(AwsBaseOperator[S3Hook]):
         uploaded to the S3 bucket.
     :param meta_data_directive: Whether to `COPY` the metadata from the source object or `REPLACE` it with
         metadata that's provided in the request.
-    :param kms_key_id: The ARN or alias of the AWS KMS key to use for encrypting the destination object. 
+    :param kms_key_id: The ARN, id or alias of the AWS KMS key to use for encrypting the destination object. 
         Required if using KMS-based server-side encryption. Example: "arn:aws:kms:us-east-1:123456789012:key/abcd1234".
     :param kms_encryption_type: Type of KMS encryption to use for the object.
         Can be either "aws:kms" (standard KMS) or "aws:kms:dsse" (double-shielded KMS).
